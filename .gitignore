@@ -8,5 +8,6 @@
 !cut_and_label_for_dataset2.py
 !cut_and_label_for_dataset3.py
 !Requirements/
+!README.md
 # Un-ignore everything inside the Requirements folder
 !Requirements/*
