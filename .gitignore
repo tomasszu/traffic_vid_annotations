@@ -7,4 +7,6 @@
 !cut_and_label_for_dataset.py
 !cut_and_label_for_dataset2.py
 !cut_and_label_for_dataset3.py
-!**/Requirements/
+!Requirements/
+# Un-ignore everything inside the Requirements folder
+!Requirements/*
