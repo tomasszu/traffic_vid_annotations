@@ -37,6 +37,10 @@ checkpoint = "/home/tomass/tomass/traffic_vid_annotations/segment-anything-2/che
 model_cfg = "sam2_hiera_l.yaml"
 predictor = build_sam2_video_predictor(model_cfg, checkpoint, device=device)
 
+# Directory for saving cropped images
+vehicle_images_dir = "vehicle_images"
+os.makedirs(vehicle_images_dir, exist_ok=True)
+
 
 def show_mask(mask, ax, obj_id=None, random_color=False):
     if random_color:
@@ -88,12 +92,6 @@ def onclick(event):
         #Ask for ID
         some_id = simpledialog.askstring("Input", f"Enter vehicle ID for clicked vehicle", initialvalue=1)
 
-        # if (some_id not in tracked_ids):
-        #     predictor.reset_state(inference_state)
-
-        # KRC TE TIKU LIDZ TAM KA VARU PIESKIRT ID, BET
-        #IZSKATAS KA PAGAIDAM PARADA TIKAI 1.) MASKU UN 2.) NEVAR PIEVIENOT JAUNUS ID PEC "TRACKING STARTS"
-
         # Clear the axes and re-display the image
         ax.clear()
         ax.imshow(img)
@@ -103,13 +101,6 @@ def onclick(event):
         # Show the points and masks
         show_points(points_np, labels_np, ax)
         
-        # Assuming out_mask_logits and out_obj_ids are calculated from your model
-        # Here you would call your model to get these values based on the points
-        # out_mask_logits, out_obj_ids = model.predict(points_np, labels_np)
-        # Mock output for demonstration purposes
-        # out_mask_logits = np.random.rand(1, img.size[1], img.size[0]) - 0.5  # Replace with actual logits
-        # out_obj_ids = np.array([1])  # Replace with actual object IDs
-
         try:
             _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
                 inference_state=inference_state,
@@ -149,14 +140,6 @@ def get_bounding_box(mask):
     rows = np.any(mask, axis=1)
     cols = np.any(mask, axis=0)
 
-    # plt.imshow(mask, cmap='gray')
-    # plt.title('Mask Debug View')
-    # plt.show()
-
-    # Debug: Check the state of rows and columns
-    # print(f"Rows with mask: {np.where(rows)[0]}")
-    # print(f"Cols with mask: {np.where(cols)[0]}")
-
     # Check if there are any non-zero rows and columns
     if np.any(rows) and np.any(cols):
         # Get the min and max row indices where mask is non-zero
@@ -168,7 +151,9 @@ def get_bounding_box(mask):
     return None  # If no non-zero pixels are found in the mask
 
 def show_bboxes_in_second_window(video_segments, frame_idx):
-    """Display bounding boxes in a second window."""
+    """Display bounding boxes in a second window and save cropped images."""
+
+    
     # Open a new figure for the bounding boxes
     fig2, ax2 = plt.subplots(figsize=(9, 6))
     ax2.set_title(f"Bounding Boxes for frame {frame_idx}")
@@ -177,13 +162,16 @@ def show_bboxes_in_second_window(video_segments, frame_idx):
     img = Image.open(os.path.join(video_dir, frame_names[frame_idx]))
     ax2.imshow(img)
 
+    bbox_data = {}
+
     # Loop through all the objects in this frame
     if frame_idx in video_segments:
         for out_obj_id, out_mask in video_segments[frame_idx].items():
             bbox = get_bounding_box(out_mask)
             if bbox is not None:
-                # Draw the bounding box
+                # Draw the bounding box on frame and save cropped image
                 x_min, y_min, x_max, y_max = bbox
+
                 rect = plt.Rectangle(
                     (x_min, y_min), x_max - x_min, y_max - y_min, 
                     edgecolor='red', facecolor='none', lw=2
@@ -193,9 +181,26 @@ def show_bboxes_in_second_window(video_segments, frame_idx):
                 # Add the object ID label above the bounding box
                 ax2.text(x_min, y_min - 10, f"ID: {out_obj_id}", 
                          color='yellow', fontsize=12, fontweight='bold')
+                bbox_data[out_obj_id] = bbox
+                
+    fig2.canvas.mpl_connect('button_press_event', lambda event: on_click_bboxes(event, bbox_data))
 
     # Show the bounding boxes window
     # plt.show(block=False)
+
+def on_click_bboxes(event, bbox_data):
+    if event.inaxes:
+        x, y = event.xdata, event.ydata
+        for obj_id, bbox in bbox_data.items():
+            x_min, y_min, x_max, y_max = bbox
+            if x_min <= x <= x_max and y_min <= y <= y_max:
+                img = Image.open(os.path.join(video_dir, frame_names[ann_frame_idx]))
+                cropped_img = img.crop((x_min, y_min, x_max, y_max))
+                cropped_img_name = f"id-{obj_id}_{ann_frame_idx}.png"
+                cropped_img_path = os.path.join(vehicle_images_dir, cropped_img_name)
+                cropped_img.save(cropped_img_path)
+                print(f"Cropped image saved: {cropped_img_path}")
+                break
 
 
 def on_keypress(event):
@@ -208,7 +213,6 @@ def on_keypress(event):
 
 # `video_dir` a directory of JPEG frames with filenames like `<frame_index>.jpg`
 video_dir = "/home/tomass/tomass/traffic_vid_annotations/video_samples/cam1_test_jpg"
-# cap = cv2.VideoCapture(video_dir)
 
 # scan all the JPEG frame names in this directory
 frame_names = [
@@ -224,48 +228,6 @@ ann_frame_idx = 0  # the frame index we interact with
 ann_obj_id = 1  # give a unique id to each object we interact with (it can be any integers)
 
 tracked_ids = []
-
-
-
-#------------- mēģinām ieviest interaction šeit:
-
-# img = Image.open(os.path.join(video_dir, frame_names[ann_frame_idx]))
-
-# fig, ax = plt.subplots(figsize=(9, 6))
-# ax.set_title(f"frame {ann_frame_idx}")
-# ax.imshow(img)
-
-# # Initialize lists to store points and labels
-# points = []
-# labels = []
-
-
-# # Connect the click event to the function
-# fig.canvas.mpl_connect('button_press_event', onclick)
-
-# plt.show()
-
-# video_segments = {}  # video_segments contains the per-frame segmentation results
-# for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
-#     if out_frame_idx >= ann_frame_idx + 30: break
-#     video_segments[out_frame_idx] = {
-#         out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
-#         for i, out_obj_id in enumerate(out_obj_ids)
-#     }
-
-# # render the segmentation results every few frames
-# vis_frame_stride = 1
-# plt.close("all")
-# for out_frame_idx in range(0, len(frame_names), vis_frame_stride):
-#     plt.figure(figsize=(6, 4))
-#     plt.title(f"frame {out_frame_idx}")
-#     plt.imshow(Image.open(os.path.join(video_dir, frame_names[out_frame_idx])))
-#     for out_obj_id, out_mask in video_segments[out_frame_idx].items():
-#         show_mask(out_mask, plt.gca(), obj_id=out_obj_id)
-#     plt.show()
-
-# mēģinām ieviest ciklu šeit -----------------------------------------------------------
-
 
 prompts = {}  # hold all the clicks we add for visualization
 
@@ -301,7 +263,7 @@ for frame_name in frame_names:
     tracked_ids = inference_state['obj_ids']
     
     if (points and labels) or video_segments:
-        for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state = inference_state, start_frame_idx= ann_frame_idx - 1, max_frame_num_to_track = 2):
+        for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state = inference_state, start_frame_idx= ann_frame_idx, max_frame_num_to_track = 1):
             # if out_frame_idx >= ann_frame_idx + 2: break  # Netaisam predictions taalaak par 2 frames uz prieksu
 
             video_segments[out_frame_idx] = {
@@ -330,68 +292,3 @@ for frame_name in frame_names:
         plt.pause(0.1)
     
     plt.close("all")
-
-
-# # Let's add a positive click at (x, y) = (210, 350) to get started
-# points = np.array([[210, 350]], dtype=np.float32)
-# # for labels, `1` means positive click and `0` means negative click
-# labels = np.array([1], np.int32)
-# _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
-#     inference_state=inference_state,
-#     frame_idx=ann_frame_idx,
-#     obj_id=ann_obj_id,
-#     points=points,
-#     labels=labels,
-# )
-
-# # show the results on the current (interacted) frame
-# plt.figure(figsize=(9, 6))
-# plt.title(f"frame {ann_frame_idx}")
-# plt.imshow(Image.open(os.path.join(video_dir, frame_names[ann_frame_idx])))
-# show_points(points, labels, plt.gca())
-# show_mask((out_mask_logits[0] > 0.0).cpu().numpy(), plt.gca(), obj_id=out_obj_ids[0])
-
-# plt.show()
-
-# while True:
-#     ret, frame = cap.read()
-    
-#     # Break the loop if no frame is returned
-#     if not ret:
-#         break
-
-#     # Convert the frame to RGB (OpenCV uses BGR by default)
-#     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    
-#     # Convert the frame to a PIL Image
-#     pil_image = Image.fromarray(frame_rgb)
-    
-#     # Display the current frame
-#     plt.figure(figsize=(9, 6))
-#     plt.title(f"frame {frame_idx}")
-#     plt.imshow(pil_image)
-#     plt.show()
-
-#     # Wait for a key press to proceed to the next frame
-#     print("Press any key to proceed to the next frame...")
-#     plt.waitforbuttonpress()
-
-#     # Move to the next frame (increment the index)
-#     frame_idx += 1
-
-# # Release the video capture object
-# cap.release()
-
-# # Load the video
-# video_path = "/home/tomass/tomass/traffic_vid_annotations/video_samples/cam1_test.mp4"
-# cap = cv2.VideoCapture(video_path)
-
-# # with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-# #     state = predictor.init_state("/home/tomass/tomass/traffic_vid_annotations/video_samples/cam1_test.mp4")
-
-# #     # add new prompts and instantly get the output on the same frame
-# #     frame_idx, object_ids, masks = predictor.add_new_points_or_box(state, np.array([[20, 20]]))
-
-# #     # propagate the prompts to get masklets throughout the video
-# #     for frame_idx, object_ids, masks in predictor.propagate_in_video(state):
-# #         print(masks)
